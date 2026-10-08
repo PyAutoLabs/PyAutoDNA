@@ -1,0 +1,9 @@
+schema_version: 1
+reviewed: '2026-10-08'
+review_by: '2027-01-08'
+sources:
+  python: https://devguide.python.org/versions/
+  jax: https://docs.jax.dev/en/latest/deprecation.html
+python:
+  - {version: '3.12', upstream_end_month: '2028-10', jax_guaranteed_through_month: '2027-07'}
+  - {version: '3.13', upstream_end_month: '2029-10', jax_guaranteed_through_month: '2028-07'}
