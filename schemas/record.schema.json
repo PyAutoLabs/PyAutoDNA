@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DNA immutable evidence envelope v1",
+  "type": "object",
+  "required": ["schema_version", "kind", "created", "digest"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "kind": {"enum": ["inventory", "stack", "validation", "decision", "campaign", "adoption", "promotion", "rollback", "availability", "audit"]},
+    "created": {"type": "string", "format": "date-time"},
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "$comment": "dna.schema.validate is normative for kind fields, digest verification and UTC/time constraints. This schema describes the interoperable envelope."
+}

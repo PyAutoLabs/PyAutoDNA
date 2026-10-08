@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+[project]
+name = "pyautodna"
+version = "0.1.0"
+description = "Observed software stacks, compatibility evidence and upgrade campaigns"
+requires-python = ">=3.12"
+dependencies = ["packaging>=23", "PyYAML>=6"]
+[project.scripts]
+pyauto-dna = "dna.cli:main"
+[tool.setuptools.packages.find]
+include = ["dna*"]

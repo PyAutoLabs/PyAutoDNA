@@ -1,0 +1,9 @@
+schema_version: 1
+environments:
+  - {id: local, label: Local development, role: development, python: unknown, backend: unknown}
+  - {id: ral-login, label: RAL shared environment (login observation), role: inventory, python: unknown, backend: unknown}
+  - {id: ral-cpu, label: RAL CPU, role: science, python: unknown, backend: cpu}
+  - {id: ral-gpu, label: RAL GPU, role: science, python: unknown, backend: cuda}
+  - {id: ci-py312, label: CI Python 3.12, role: validation, python: '3.12', backend: cpu}
+  - {id: ci-py313, label: CI Python 3.13, role: validation, python: '3.13', backend: cpu}
+  - {id: release, label: Release build, role: release, python: unknown, backend: unknown}
