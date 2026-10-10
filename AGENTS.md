@@ -20,6 +20,7 @@ Canonical boundaries live in `PyAutoBrain/ORGANISM.md`; the full body map
 | Organ | Repo | Role |
 |-------|------|------|
 | **Brain** | PyAutoBrain | Reasoning/orchestration layer; how work is decomposed and routed; the specialist agents. |
+| **Broca** | PyAutoBroca | Assistant evaluation history, upkeep evidence, collection receipts and an operational dashboard. Brain interprets; Mind tracks fixes; public assistants remain independent. |
 | **Mind** | PyAutoMind | Intent, goals, priorities, workflow state; every task starts as a markdown prompt here. |
 | **Cortex** | PyAutoCortex | The Cortex — what is true in the science: the body map (`projects.yaml`) and one ledger per science project (runs, results, learnings, where to pick up); the science mirror of the Mind. |
 | **Memory** | PyAutoMemory | Long-term scientific/software/project knowledge (see science pointer below). |
