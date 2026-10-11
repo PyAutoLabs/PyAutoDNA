@@ -186,9 +186,6 @@ def render(root, brain, output, max_age_days=7):
         'running science environments. Collection or refresh never installs packages or submits compute.',
         organ='dna', refreshed_at=board['refreshed_at'], refresh_url=REPO + '/actions/workflows/pages.yml',
         work_links=[{'label': 'DNA', 'href': REPO}, {'label': 'Brain', 'href': 'https://github.com/PyAutoLabs/PyAutoBrain'}])
-    body += '<p class="muted">' + esc(headline) + '. Observed versions describe an installation; support requires matching validation evidence.</p>'
-    if mismatches:
-        body += '<p class="verdict">' + esc('; '.join(f"{env['label']}: {row.get('package')} {row.get('observed')} is outside declared compatibility" for env, row in mismatches)) + '.</p>'
     body += '<section><h2 id="environments">Environments</h2>'
     body += table(['Environment', 'Profile', 'Observed Python / backend', 'Last observation'], [
         [e['label'], e['declared_python'] + ' / ' + e['declared_backend'],
