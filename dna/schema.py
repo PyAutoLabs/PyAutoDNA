@@ -5,6 +5,11 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+#: Who may author a validation record. PyAutoHeart receipts are release evidence and the only
+#: kind that can satisfy promotion; PyAutoDNA records are research evidence (for example the
+#: JAX hang matrix, PyAutoNerves#213): shown on the board, able to block, never to promote.
+AUTHORITIES = {"PyAutoHeart", "PyAutoDNA"}
+
 KINDS = {"inventory", "stack", "validation", "decision", "campaign", "adoption", "promotion", "rollback", "availability", "audit"}
 
 def now():
@@ -85,8 +90,8 @@ def validate(obj):
         if obj["backend"] not in {"cpu", "cuda", "unknown"}:
             raise ValueError("invalid backend")
     if kind == "validation":
-        if obj["authority"] != "PyAutoHeart" or obj["result"] not in {"pass", "fail", "unknown"}:
-            raise ValueError("validation must name Heart and a valid result")
+        if obj["authority"] not in AUTHORITIES or obj["result"] not in {"pass", "fail", "unknown"}:
+            raise ValueError("validation must name Heart or DNA research and a valid result")
         if not isinstance(obj["checks"], list) or not obj["checks"] or not obj["evidence"]:
             raise ValueError("validation requires checks and evidence")
     if "review_date" in obj:

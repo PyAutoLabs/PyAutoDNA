@@ -7,7 +7,8 @@ from pathlib import Path
 import yaml
 from packaging.requirements import Requirement
 from .campaigns import Store
-from .inventory import public_inventory, PUBLIC_PACKAGES, PUBLIC_REPOSITORIES
+from .inventory import public_inventory, public_runtime, PUBLIC_PACKAGES, PUBLIC_REPOSITORIES
+from .matrix import CHECK_FIELDS, MATRIX_SOURCE
 from .schema import identifier, now, read, timestamp
 
 URL = 'https://pyautolabs.github.io/PyAutoDNA/'
@@ -38,6 +39,55 @@ def registry(root):
     return obj['environments']
 
 
+SIMPLE = __import__('re').compile(r'[A-Za-z0-9_.:-]{1,100}')
+
+
+def public_check(check):
+    """A validation check reduced to allowlisted fields with simple values."""
+    if isinstance(check, str):
+        return check if SIMPLE.fullmatch(check) else None
+    if not isinstance(check, dict):
+        return None
+    out = {}
+    for key in CHECK_FIELDS:
+        value = check.get(key)
+        if value is None or isinstance(value, (int, float)) and not isinstance(value, bool):
+            out[key] = value
+        elif isinstance(value, str) and SIMPLE.fullmatch(value):
+            out[key] = value
+    return out if out.get('case') else None
+
+
+#: XLA options that decide whether the XLA:CPU deadlock can fire (PyAutoNerves#213). Other
+#: options (e.g. --xla_disable_hlo_passes=constant_folding) were tested and do not.
+HANG_OPTIONS = ('xla_cpu_multi_thread_eigen', 'xla_cpu_enable_concurrency_optimized_scheduler')
+
+
+def stack_key(packages, xla_options):
+    relevant = [o for o in (xla_options or []) if o.lstrip('-').split('=')[0] in HANG_OPTIONS]
+    return (packages.get('jax'), tuple(sorted(relevant)))
+
+
+def jax_cpu_policy(records):
+    """Latest DNA research verdict per (stack, environment), with the stack's jax and XLA options."""
+    stacks = {r['digest']: r for r in records if r['kind'] == 'stack'}
+    research = latest([r for r in records if r['kind'] == 'validation' and r.get('authority') == 'PyAutoDNA'],
+                      'validation', lambda r: (r['stack'], r['environment']))
+    rows = []
+    for r in research.values():
+        stack = stacks.get(r['stack'], {})
+        options = stack.get('runtime_flags', {}).get('xla_options', [])
+        checks = [c for c in r.get('checks', []) if isinstance(c, dict)]
+        hangs = [c for c in checks if c.get('outcome') == 'hang']
+        rows.append({'jax': stack.get('packages', {}).get('jax', 'Unknown'), 'xla_options': options,
+                     'environment': r['environment'], 'result': r['result'], 'created': r['created'],
+                     'cells': len(checks), 'passed': sum(c.get('outcome') == 'pass' for c in checks),
+                     'hung': len(hangs),
+                     'hung_cases': sorted({c['case'] for c in hangs}),
+                     'first_hang': min((c['hung_at_call'] for c in hangs if c.get('hung_at_call') is not None), default=None)})
+    return sorted(rows, key=lambda x: (x['jax'], x['environment'], ' '.join(x['xla_options'])))
+
+
 def public_records(records):
     result = []
     for obj in records:
@@ -50,6 +100,11 @@ def public_records(records):
                    'inventory', 'result', 'authority', 'review_date', 'validations', 'latest',
                    'compatible_stable')
         clean = {k: obj[k] for k in allowed if k in obj}
+        if obj['kind'] == 'validation' and isinstance(obj.get('checks'), list):
+            clean['checks'] = [c for c in (public_check(c) for c in obj['checks']) if c is not None]
+        if obj['kind'] == 'stack' and isinstance(obj.get('runtime_flags'), dict):
+            runtime = public_runtime({'flags': obj['runtime_flags']})
+            clean['runtime_flags'] = {k: runtime[k] for k in ('xla_options', 'platforms') if k in runtime}
         if 'packages' in clean:
             clean['packages'] = {k: v for k, v in clean['packages'].items() if k in PUBLIC_PACKAGES}
         if obj['kind'] == 'audit':
@@ -86,7 +141,8 @@ def snapshot(root, max_age_days=7):
         raise ValueError('unsupported public projection schema')
     current = {}
     for obj in records:
-        if obj['kind'] == 'inventory':
+        if obj['kind'] == 'inventory' and obj['runtime'].get('source') != MATRIX_SOURCE:
+            # a hang-matrix inventory describes a throwaway test interpreter, not the environment
             inv = public_inventory(obj)
             if inv['environment'] not in current or timestamp(inv['created']) > timestamp(current[inv['environment']]['created']):
                 current[inv['environment']] = inv
@@ -167,11 +223,26 @@ def render(root, brain, output, max_age_days=7):
         items.append({'id': 'dependency-' + str(index), 'severity': 'yellow', 'state': 'action_required',
                       'text': f"{env['label']}: {row.get('package')} {row.get('observed')} is outside {row['repository']} declarations",
                       'url': URL + '#compatibility'})
+    policy = jax_cpu_policy(records)
+    failing = {stack_key({'jax': r['jax']}, r['xla_options']) for r in policy if r['result'] == 'fail'}
+    exposed = []
+    for e in envs:
+        inv = e['observed']
+        if inv and inv['runtime'].get('backend') == 'cpu' and 'jax' in inv['packages']:
+            key = stack_key({'jax': inv['packages']['jax']['version']}, inv['runtime'].get('xla_options'))
+            if key in failing:
+                exposed.append(e)
+                items.append({'id': 'jax-cpu-' + e['id'], 'severity': 'yellow', 'state': 'action_required',
+                              'text': f"{e['label']}: jax {key[0]} with {', '.join(key[1]) or 'no XLA:CPU hang flag'} hangs in the DNA hang matrix",
+                              'url': URL + '#jax-cpu-policy'})
+    mismatches = mismatches + [(e, None) for e in exposed]
     status = 'yellow' if mismatches else 'stale' if any(e['status'] == 'stale' for e in envs) else 'grey'
     count = sum(e['status'] == 'observed' for e in envs)
     headline = f'{count} / {len(envs)} environments observed'
-    if mismatches:
-        headline += f'; {len(mismatches)} declaration mismatches'
+    if len(mismatches) > len(exposed):
+        headline += f'; {len(mismatches) - len(exposed)} declaration mismatches'
+    if exposed:
+        headline += f'; {len(exposed)} on a hanging JAX CPU setup'
     state = dict(schema_version=1, organ='dna', repo='PyAutoLabs/PyAutoDNA', status=status,
                  headline=headline, updated=board['updated'], pages_url=URL, items=items)
     errors = state_contract.validate_state(state)
@@ -187,9 +258,10 @@ def render(root, brain, output, max_age_days=7):
         organ='dna', refreshed_at=board['refreshed_at'], refresh_url=REPO + '/actions/workflows/pages.yml',
         work_links=[{'label': 'DNA', 'href': REPO}, {'label': 'Brain', 'href': 'https://github.com/PyAutoLabs/PyAutoBrain'}])
     body += '<section><h2 id="environments">Environments</h2>'
-    body += table(['Environment', 'Profile', 'Observed Python / backend', 'Last observation'], [
+    body += table(['Environment', 'Profile', 'Observed Python / backend', 'XLA options', 'Last observation'], [
         [e['label'], e['declared_python'] + ' / ' + e['declared_backend'],
          e['observed']['python'] + ' / ' + e['observed']['runtime']['backend'] if e['observed'] else 'Unknown',
+         (', '.join(e['observed']['runtime'].get('xla_options') or []) or 'Default') if e['observed'] else 'Unknown',
          e['status'] + ' · ' + e['observed']['created'] if e['observed'] else 'Not collected'] for e in envs], 'Environment observations; scroll for more columns')
     observed = [e for e in envs if e['observed']]
     if observed:
@@ -235,10 +307,20 @@ def render(root, brain, output, max_age_days=7):
             body += '</details>'
     else:
         body += '<p>No dependency audit recorded. Package requirements remain authoritative in each repository.</p>'
+    body += '<h3 id="jax-cpu-policy">JAX CPU policy: hang matrix</h3>'
+    if policy:
+        body += table(['jax', 'XLA options', 'Environment', 'Result', 'Reproducers passed', 'Hung (first call)', 'Recorded'], [
+            [r['jax'], ', '.join(r['xla_options']) or 'Default', r['environment'], r['result'],
+             f"{r['passed']} / {r['cells']}",
+             (', '.join(r['hung_cases']) + (f" (call {r['first_hang']})" if r['first_hang'] is not None else '')) if r['hung'] else 'None',
+             r['created']] for r in policy], 'JAX version and XLA flag hang matrix')
+        body += '<p class="muted">DNA research evidence: each reproducer runs many times in a process that imports only jax. A pass is not a Heart validation and never promotes a stack; a hang blocks one.</p>'
+    else:
+        body += '<p>No hang-matrix evidence recorded.</p>'
     body += '<h3>Validation and promotion history</h3>'
     validations = latest(records, 'validation', lambda r: (r['stack'], r['environment']))
     if validations:
-        body += table(['Stack', 'Environment', 'Latest supplied Heart result', 'Evidence date', 'Freshness'], [[r['stack'][:12], r['environment'], r['result'], r['created'], evidence_age(r, max_age_days)] for r in validations.values()], 'Supplied validation receipts')
+        body += table(['Stack', 'Environment', 'Authority', 'Latest supplied result', 'Evidence date', 'Freshness'], [[r['stack'][:12], r['environment'], r.get('authority', 'PyAutoHeart'), r['result'], r['created'], evidence_age(r, max_age_days)] for r in validations.values()], 'Supplied validation receipts')
     else:
         body += '<p>No matching Heart validation receipt recorded. No supported stack is inferred from an observed installation.</p>'
     body += '<p class="muted">Supplied validation receipts are records, not a live Heart readiness verdict. Stale evidence must be refreshed before adoption.</p>'

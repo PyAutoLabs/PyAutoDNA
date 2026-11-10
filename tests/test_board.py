@@ -72,3 +72,35 @@ class Board(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class JaxCpuPolicyPanel(unittest.TestCase):
+    """PyAutoNerves#213: the hang matrix shows on the board and an exposed environment goes yellow."""
+    def test_panel_and_exposed_environment(self):
+        from dna.matrix import import_matrix
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup); root = Path(temp.name)
+        (root / 'environments.yaml').write_text('schema_version: 1\nenvironments:\n  - {id: local, label: Local, backend: cpu}\n')
+        store = Store(root / 'private')
+        store.add(record('inventory', environment='local', python='3.13.13', packages={'jax': {'version': '0.11.2'}},
+                         repositories=[], runtime={'backend': 'cpu', 'flags': {'XLA_FLAGS': '--xla_disable_hlo_passes=constant_folding'}}))
+        rows = root / 'rows.jsonl'
+        rows.write_text(json.dumps({'environment': 'local', 'case': 'export:group_mge_p3', 'outcome': 'hang', 'calls_requested': 100,
+                                    'calls_completed': 2, 'hung_at_call': 2, 'stall_cpu_fraction': 0.0, 'repeat': 0,
+                                    'header': {'jax': '0.11.2', 'jaxlib': '0.11.2', 'python': '3.13.13', 'backend': 'cpu', 'xla_flags': ''}}) + '\n')
+        import_matrix(store, rows)
+        from dna.board import jax_cpu_policy, snapshot
+        board = snapshot(root)
+        local = next(e for e in board['environments'] if e['id'] == 'local')
+        self.assertEqual(local['observed']['packages']['jax']['version'], '0.11.2')
+        self.assertNotIn('jaxlib', local['observed']['packages'])  # the matrix interpreter is not the environment
+        policy = jax_cpu_policy(board['records'])
+        self.assertEqual([(p['jax'], p['result'], p['first_hang']) for p in policy], [('0.11.2', 'fail', 2)])
+        brain = Path(os.environ.get('PYAUTO_BRAIN', Path(__file__).resolve().parents[2] / 'PyAutoBrain'))
+        if not brain.is_dir():
+            brain = Path(__file__).resolve().parents[1] / 'PyAutoBrain'
+        out = render(root, brain, root / '_site')
+        self.assertEqual(out['status'], 'yellow')
+        page = (root / '_site/index.html').read_text()
+        self.assertIn('jax-cpu-policy', page)
+        state = json.loads((root / '_site/state.json').read_text())
+        self.assertTrue(any(i['id'] == 'jax-cpu-local' for i in state['items']))
