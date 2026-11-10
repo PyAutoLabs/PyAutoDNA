@@ -28,9 +28,20 @@ CHECK_FIELDS = ("case", "outcome", "calls_requested", "calls_completed", "hung_a
                 "median_call_s", "steady_median_call_s", "stall_cpu_fraction", "cpus_pinned", "repeat")
 
 
+#: Short stack-name labels for the options that decide the XLA:CPU hang; other flags (e.g. the
+#: PyAutoNerves defaults) stay in the stack's runtime_flags but not in its name.
+HANG_LABELS = {"xla_cpu_multi_thread_eigen": "eigen", "xla_cpu_enable_concurrency_optimized_scheduler": "sched"}
+
+
 def _flag_label(flags):
-    names = sorted(token.split("=")[0].lstrip("-") for token in flags.split() if token)
-    return "+".join(names) if names else "default"
+    names = []
+    for token in flags.split():
+        name, _, value = token.lstrip("-").partition("=")
+        if name in HANG_LABELS:
+            names.append(f"{HANG_LABELS[name]}-{value or 'set'}")
+    label = "+".join(sorted(names)) if names else "default"
+    others = any(t.lstrip("-").partition("=")[0] not in HANG_LABELS for t in flags.split())
+    return label + ("-plus" if others else "")
 
 
 def result_for(rows):

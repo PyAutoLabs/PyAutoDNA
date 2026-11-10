@@ -126,7 +126,7 @@ class HangMatrix(unittest.TestCase):
         results = {o['digest']: o['result'] for o in out if o['kind'] == 'validation'}
         self.assertEqual(sorted(results.values()), ['fail', 'pass'])
         names = sorted(o['name'] for o in out if o['kind'] == 'stack')
-        self.assertEqual(names, ['jax-0.11.2-default', 'jax-0.11.2-xla_cpu_multi_thread_eigen'])
+        self.assertEqual(names, ['jax-0.11.2-default', 'jax-0.11.2-eigen-false'])
         validation = next(r for r in self.store.records('validation') if r['result'] == 'fail')
         self.assertEqual(validation['authority'], 'PyAutoDNA')
         inv = self.store.require(validation['inventory'], 'inventory')
@@ -144,6 +144,11 @@ class HangMatrix(unittest.TestCase):
         import time; time.sleep(1.1)
         self.store.add(record('validation', stack=stack['digest'], environment='local', authority='PyAutoDNA', result='fail', checks=['hang'], evidence='matrix', inventory=research['inventory']))
         with self.assertRaises(ValueError): self.store.promote(campaign['digest'], [heart['digest']])
+    def test_long_flag_sets_keep_a_short_name(self):
+        from dna.matrix import _flag_label
+        nerves = '--xla_disable_hlo_passes=constant_folding --xla_gpu_autotune_level=0 --xla_gpu_enable_triton_gemm=false'
+        self.assertEqual(_flag_label(nerves), 'default-plus')
+        self.assertEqual(_flag_label(nerves + ' --xla_cpu_multi_thread_eigen=false'), 'eigen-false-plus')
     def test_unknown_authority_rejected(self):
         with self.assertRaises(ValueError):
             record('validation', stack='x', environment='local', authority='Someone', result='pass', checks=['c'], evidence='e', inventory='i')
