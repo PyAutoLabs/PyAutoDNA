@@ -1,6 +1,6 @@
 # JAX CPU policy: XLA:CPU deadlocks — November 2026
 
-Status: DRAFT (research, PyAutoNerves#213). Awaiting the RAL repeat matrix and a Heart
+Status: RECOMMENDATION (research, PyAutoNerves#213). Evidence complete; awaiting a Heart
 validation of the proposed range before any requirement changes.
 Supersedes: [jax-2026-10-04](jax-2026-10-04.md) (review date 2026-11-04 passed).
 Owner: PyAutoBrain; validation authority: PyAutoHeart; evidence: PyAutoDNA research records.
@@ -36,25 +36,54 @@ Laptop pilot, 8 cores, 2026-11-10, one repeat per cell:
   openxla/xla#50091 (merged 2026-10-06), released in jax 0.12.0 (2026-10-19). No upstream issue
   was found for the MGE / Delaunay hang (no thread working, unlike the FFT latch).
 
-RAL repeat matrix (0.9.2, 0.11.2, 0.12.0, 0.12.0.1 x 3 flag settings x 4 and 16 cores x 5
-repeats, 300 calls): PENDING.
+RAL repeat matrix (job 415009, 2026-11-11, AMD EPYC 7763 nodes): jax 0.9.2 / 0.11.2 / 0.12.0 /
+0.12.0.1 x {no flag, eigen flag, scheduler flag} x {4, 16} cores x 5 repeats, 300 calls per cell,
+600 cells, 180,000 calls in all.
 
-## Proposed policy (pending RAL + Heart)
+| jax | no flag, 4 cores | no flag, 16 cores | eigen flag | scheduler flag |
+|---|---|---|---|---|
+| 0.11.2 | **hang in 25 / 25 cells, all on the first call** | pass 25 / 25 | pass 50 / 50 | pass 50 / 50 |
+| 0.12.0 | pass 25 / 25 | pass 25 / 25 | pass 50 / 50 | pass 50 / 50 |
+| 0.12.0.1 | pass 25 / 25 | pass 25 / 25 | pass 50 / 50 | pass 50 / 50 |
+| 0.9.2 | pass (fft, group MGE data vector) | pass | pass | pass |
+
+0.9.2 cannot read the three full-likelihood modules exported from 0.11.2 (StableHLO is newer
+than it), so it is only partly tested.
+
+What this adds to the pilot:
+
+- On 0.11.2 the hang depends on the cores the process has: always at 4 cores, intermittent at 8
+  (laptop), not seen at 16. Small containers, CI runners and laptops are the most exposed; a
+  large node can hide the bug.
+- Per-call cost of the flags on 0.12.0.1 (steady median):
+
+  | Likelihood | cores | no flag | eigen flag | scheduler flag |
+  |---|---|---|---|---|
+  | group MGE (full) | 4 / 16 | 0.056 / 0.040 s | 0.055 / 0.040 s | 0.086 / 0.084 s |
+  | multi_galaxy MGE (full) | 4 / 16 | 0.037 / 0.025 s | 0.038 / 0.026 s | 0.062 / 0.056 s |
+  | multi_galaxy rectangular (full) | 4 / 16 | 1.44 / 0.91 s | 1.71 / 1.35 s | 1.27 / 0.91 s |
+  | fft | 4 / 16 | 0.159 / 0.071 s | 0.146 / 0.120 s | 0.139 / 0.113 s |
+
+  The eigen flag is free for MGE but costs 18 % (4 cores) to about 50 % (16 cores) on the
+  pixelized likelihood; the scheduler flag costs 1.5-2x on MGE. Neither is free everywhere.
+
+## Recommended policy (pending Heart validation)
 
 1. Require `jax>=0.12.0,<0.13` and `jaxlib>=0.12.0,<0.13` in PyAutoNerves. Both bounds move
    together: jax 0.12.0 itself accepts jaxlib 0.11.2. This replaces the 0.7 floor and the
    0.10.* / 0.11.0 exclusions. Python (>=3.12) is unchanged; numpy's floor becomes 2.2; x86-64
-   needs a Haswell (2013) or newer CPU.
-2. Optionally keep `--xla_cpu_multi_thread_eigen=false` as a CPU-only default in PyAutoNerves'
-   `jax_wrapper`, never overriding a flag the user set and never on GPU. On 0.12 it measured
-   within about 10 % per call either way, so it is cheap insurance against a regression.
-3. Guard: a scheduled Heart check runs the exported reproducers for 300 calls on every jax
-   version the requirement allows and writes its result into DNA. The DNA board marks any
-   observed environment whose jax version and XLA flags match a hanging setup.
+   needs a Haswell (2013) or newer CPU. 0.12.0 and 0.12.0.1 behave the same on Linux.
+2. Do not add a default XLA:CPU flag. On 0.12 no reproducer needs one, and the eigen flag slows
+   pixelized likelihoods by up to about 50 %. Remove the per-place eigen-flag workarounds once the
+   floor is released (CI test workspaces, Heart release legs, the autolens_profiling 2d driver,
+   job scripts), each re-checked on 0.12 first.
+3. Guard: a scheduled Heart check runs the exported reproducers for 300 calls at 4 cores on
+   every jax version the requirement allows (4 cores is where the 0.11.2 hang is certain) and
+   writes the result into DNA. The DNA board marks any observed environment whose jax version
+   and XLA flags match a hanging setup.
 
 ## Open before deciding
 
-- RAL repeat matrix (N=5, two core counts).
 - Heart validation of the full library and workspace suites on 0.12 (CPU and GPU, including
   blackjax, optax, nufftax, jaxnnls and the CUDA plugins).
 - The CI hang of `multi_dataset/jax_likelihood/delaunay_mge.py`, which hung twice on 0.11.2
