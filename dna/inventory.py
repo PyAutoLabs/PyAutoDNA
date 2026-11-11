@@ -13,6 +13,13 @@ PUBLIC_REPOSITORIES = {"PyAutoBrain", "PyAutoMind", "PyAutoDNA", "PyAutoNerves",
 
 PUBLIC_PACKAGES = {"anesthetic", "astropy", "matplotlib", "scikit-learn", "dynesty", "nautilus-sampler", "emcee", "zeus-mcmc", "corner", "optax", "blackjax", "numpyro", "tensorflow-probability", "tfp-nightly", "nufftax", "jax-cuda12-plugin", "jax-cuda12-pjrt", "jax-cuda13-plugin", "jax-cuda13-pjrt", "autofit", "autoarray", "autogalaxy", "autolens", "autocti", "autonerves", "jax", "jaxlib", "numpy", "scipy", "numba", "python", "pyautodna", "packaging", "pyyaml"}
 
+#: XLA options that may appear on public boards: compile/runtime switches with no paths, hosts
+#: or secrets in their values. Anything else in XLA_FLAGS stays private.
+PUBLIC_XLA_OPTIONS = {"xla_cpu_multi_thread_eigen", "xla_cpu_enable_concurrency_optimized_scheduler",
+                      "xla_disable_hlo_passes", "xla_gpu_autotune_level", "xla_gpu_enable_triton_gemm",
+                      "xla_force_host_platform_device_count", "xla_cpu_use_thunk_runtime",
+                      "xla_gpu_enable_command_buffer", "xla_backend_optimization_level"}
+
 FLAGS = ("JAX_ENABLE_X64", "JAX_PLATFORMS", "JAX_PLATFORM_NAME", "XLA_FLAGS", "CUDA_VISIBLE_DEVICES", "PYAUTO_TEST_MODE", "PYAUTO_DISABLE_JAX", "PYAUTO_TEST")
 
 def command(args, cwd=None):
@@ -59,9 +66,34 @@ def collect(environment, repositories=(), probe_backend=False):
                   executable=sys.executable, platform={"system": platform.system(), "machine": platform.machine(), "markers": __import__("packaging.markers", fromlist=["default_environment"]).default_environment()},
                   packages=packages, repositories=repos, imports=imports, runtime=runtime)
 
+def public_xla_options(text):
+    """Allowlisted ``--name=value`` tokens from an XLA_FLAGS string; values must be simple."""
+    import re
+    keep = []
+    for token in (text or "").split():
+        name, _, value = token.lstrip("-").partition("=")
+        if name in PUBLIC_XLA_OPTIONS and re.fullmatch(r"[A-Za-z0-9_.,-]*", value):
+            keep.append(f"--{name}={value}" if value else f"--{name}")
+    return keep
+
+def public_runtime(runtime):
+    """Allowlisted runtime facts. Accepts a private inventory's runtime or an already-public
+    projection (re-filtered, so committed public data is never trusted as-is)."""
+    flags = dict(runtime.get("flags") or {})
+    if "xla_options" in runtime:
+        flags.setdefault("XLA_FLAGS", " ".join(runtime["xla_options"] or []))
+    if "platforms" in runtime:
+        flags.setdefault("JAX_PLATFORMS", runtime["platforms"])
+    out = {"backend": runtime.get("backend", "unknown"), "x64": runtime.get("x64"),
+           "xla_options": public_xla_options(flags.get("XLA_FLAGS"))}
+    platforms = flags.get("JAX_PLATFORMS")
+    if isinstance(platforms, str) and set(platforms) <= set("abcdefghijklmnopqrstuvwxyz0-9,"):
+        out["platforms"] = platforms
+    return out
+
 def public_inventory(obj):
     """Construct from allowed fields; never redact a raw object in place."""
     return {"digest": obj["digest"], "environment": obj["environment"], "created": obj["created"],
             "python": obj["python"], "packages": {n: {"version": p["version"]} for n, p in obj["packages"].items() if n in PUBLIC_PACKAGES},
             "repositories": [{k: r[k] for k in ("name", "sha", "dirty")} for r in obj["repositories"] if r["name"] in PUBLIC_REPOSITORIES],
-            "runtime": {"backend": obj["runtime"].get("backend", "unknown"), "x64": obj["runtime"].get("x64")}}
+            "runtime": public_runtime(obj["runtime"])}

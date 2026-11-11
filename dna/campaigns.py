@@ -56,11 +56,18 @@ class Store:
             raise ValueError("promotion requires an explicit backend")
         checks = [self.require(d, "validation") for d in validations]
         all_checks = self.records("validation")
+        if any(c["authority"] != "PyAutoHeart" for c in checks):
+            raise ValueError("only PyAutoHeart validation can support promotion")
         for env in obj["environments"]:
             matching = [c for c in all_checks if c["stack"] == obj["target"] and c["environment"] == env]
-            latest = max(matching, key=lambda c: timestamp(c["created"])) if matching else None
+            heart = [c for c in matching if c["authority"] == "PyAutoHeart"]
+            latest = max(heart, key=lambda c: timestamp(c["created"])) if heart else None
             if latest is None or latest["digest"] not in validations or latest["result"] != "pass":
                 raise ValueError(f"latest matching Heart evidence must pass: {env}")
+            research_fail = [c for c in matching if c["authority"] != "PyAutoHeart" and c["result"] == "fail"
+                             and timestamp(c["created"]) > timestamp(latest["created"])]
+            if research_fail:
+                raise ValueError(f"newer DNA research evidence fails: {env}")
             if (datetime.now(timezone.utc) - timestamp(latest["created"])).total_seconds() > 7 * 86400:
                 raise ValueError("stale Heart validation")
             inv = self.require(latest["inventory"], "inventory")

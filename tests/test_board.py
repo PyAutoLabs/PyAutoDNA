@@ -72,3 +72,51 @@ class Board(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class JaxCpuPolicyPanel(unittest.TestCase):
+    """PyAutoNerves#213: the hang matrix shows on the board and an exposed environment goes yellow."""
+    def test_panel_and_exposed_environment(self):
+        from dna.matrix import import_matrix
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup); root = Path(temp.name)
+        (root / 'environments.yaml').write_text('schema_version: 1\nenvironments:\n  - {id: local, label: Local, backend: cpu}\n')
+        store = Store(root / 'private')
+        store.add(record('inventory', environment='local', python='3.13.13', packages={'jax': {'version': '0.11.2'}},
+                         repositories=[], runtime={'backend': 'cpu', 'flags': {'XLA_FLAGS': '--xla_disable_hlo_passes=constant_folding'}}))
+        rows = root / 'rows.jsonl'
+        rows.write_text(json.dumps({'environment': 'local', 'case': 'export:group_mge_p3', 'outcome': 'hang', 'calls_requested': 100,
+                                    'calls_completed': 2, 'hung_at_call': 2, 'stall_cpu_fraction': 0.0, 'repeat': 0,
+                                    'header': {'jax': '0.11.2', 'jaxlib': '0.11.2', 'python': '3.13.13', 'backend': 'cpu', 'xla_flags': ''}}) + '\n')
+        import_matrix(store, rows)
+        from dna.board import jax_cpu_policy, snapshot
+        board = snapshot(root)
+        local = next(e for e in board['environments'] if e['id'] == 'local')
+        self.assertEqual(local['observed']['packages']['jax']['version'], '0.11.2')
+        self.assertNotIn('jaxlib', local['observed']['packages'])  # the matrix interpreter is not the environment
+        policy = jax_cpu_policy(board['records'])
+        self.assertEqual([(p['jax'], p['result'], p['first_hang']) for p in policy], [('0.11.2', 'fail', 2)])
+        brain = Path(os.environ.get('PYAUTO_BRAIN', Path(__file__).resolve().parents[2] / 'PyAutoBrain'))
+        if not brain.is_dir():
+            brain = Path(__file__).resolve().parents[1] / 'PyAutoBrain'
+        out = render(root, brain, root / '_site')
+        self.assertEqual(out['status'], 'yellow')
+        page = (root / '_site/index.html').read_text()
+        self.assertIn('jax-cpu-policy', page)
+        state = json.loads((root / '_site/state.json').read_text())
+        self.assertTrue(any(i['id'] == 'jax-cpu-local' for i in state['items']))
+
+
+class PublicReprojection(unittest.TestCase):
+    """Committed public data is filtered again on render; that second pass must keep what the first kept."""
+    def test_stack_flags_and_library_checks_survive(self):
+        stack = record('stack', name='jax-0.11.2-eigen-false', python='3.13.13', backend='cpu', packages={'jax': '0.11.2'},
+                       runtime_flags={'XLA_FLAGS': '--xla_cpu_multi_thread_eigen=false --xla_dump_to=/secret', 'JAX_PLATFORMS': 'cpu'})
+        check = {'case': 'library:group/delaunay', 'outcome': 'pass', 'calls_completed': 30}
+        val = record('validation', stack=stack['digest'], environment='local', authority='PyAutoDNA', result='pass',
+                     checks=[check], evidence='private', inventory='x' * 64)
+        once = public_records([stack, val])
+        twice = public_records(once)
+        self.assertEqual(twice, once)
+        self.assertEqual(twice[0]['runtime_flags']['xla_options'], ['--xla_cpu_multi_thread_eigen=false'])
+        self.assertEqual(twice[1]['checks'][0]['case'], 'library:group/delaunay')
+        self.assertNotIn('secret', json.dumps(twice))

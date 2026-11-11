@@ -15,6 +15,7 @@ def main(argv=None):
     p = sub.add_parser("export-public"); p.add_argument("--output", default="inventories/public.json")
     p = sub.add_parser("collect"); p.add_argument("environment"); p.add_argument("--repo", action="append", default=[]); p.add_argument("--probe-backend", action="store_true")
     p = sub.add_parser("import"); p.add_argument("file")
+    p = sub.add_parser("import-matrix", help="record a JAX hang-matrix run as DNA research evidence"); p.add_argument("rows"); p.add_argument("--evidence")
     p = sub.add_parser("stack"); p.add_argument("name"); p.add_argument("--python", required=True); p.add_argument("--backend", choices=["cpu", "cuda", "unknown"], required=True); p.add_argument("--package", action="append", default=[])
     p = sub.add_parser("diff"); p.add_argument("left"); p.add_argument("right")
     p = sub.add_parser("compare"); p.add_argument("inventory"); p.add_argument("stack")
@@ -45,6 +46,14 @@ def main(argv=None):
                 raise ValueError("environment not in registry")
             result = store.add(collect(args.environment, args.repo, args.probe_backend))
         elif cmd == "import": result = store.add(schema.read(args.file))
+        elif cmd == "import-matrix":
+            from .board import registry
+            from .matrix import import_matrix
+            known = {e["id"] for e in registry(Path(args.root))}
+            rows = [json.loads(l) for l in Path(args.rows).read_text().splitlines() if l.strip()]
+            if any(r.get("environment") not in known for r in rows):
+                raise ValueError("matrix row environment not in registry")
+            result = import_matrix(store, args.rows, args.evidence)
         elif cmd == "stack":
             packages = {}
             for text in args.package:
