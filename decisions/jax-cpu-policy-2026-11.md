@@ -1,3 +1,24 @@
+---
+policy: jax-cpu
+title: JAX CPU policy
+status: Recommended 2026-11-11 (human-approved). The PyAutoNerves floor change is in progress, pending a Heart validation of jax 0.12 and a release.
+declared_in: PyAutoNerves
+packages: [jax, jaxlib]
+recommended:
+  jax: ">=0.12.0,<0.13"
+  jaxlib: ">=0.12.0,<0.13"
+matrix_package: jax
+review_date: 2026-12-10
+findings:
+  - "jax 0.11.2 with no XLA flag hangs in compiled CPU likelihoods: on RAL every reproducer hung on its first call at 4 cores (25 of 25 cells), and none hung at 16 cores (0 of 25)."
+  - "jax 0.12.0 and 0.12.0.1 with no flag: 0 hangs in 30,000 calls, at 4 and 16 cores."
+  - "The eigen flag (`--xla_cpu_multi_thread_eigen=false`) avoids the hang on 0.11.2 but slows pixelized likelihoods by 18 % to about 50 % on 0.12, so it is not a default."
+  - "The FFT part of the bug is upstream jax-ml/jax#41265, fixed by openxla/xla#50091 in jax 0.12.0."
+links:
+  - {label: "Research PyAutoNerves#213", url: "https://github.com/PyAutoLabs/PyAutoNerves/issues/213"}
+  - {label: "Floor change PyAutoNerves#215", url: "https://github.com/PyAutoLabs/PyAutoNerves/issues/215"}
+  - {label: "Hang matrix scripts", url: "https://github.com/PyAutoLabs/autolens_profiling/tree/main/scripts/misc/jax_version_policy"}
+---
 # JAX CPU policy: XLA:CPU deadlocks — November 2026
 
 Status: RECOMMENDATION (research, PyAutoNerves#213). Evidence complete; awaiting a Heart
