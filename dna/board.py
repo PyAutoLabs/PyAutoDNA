@@ -39,7 +39,7 @@ def registry(root):
     return obj['environments']
 
 
-SIMPLE = __import__('re').compile(r'[A-Za-z0-9_.:-]{1,100}')
+SIMPLE = __import__('re').compile(r'[A-Za-z0-9_.:/-]{1,100}')
 
 
 def public_check(check):
@@ -103,7 +103,9 @@ def public_records(records):
         if obj['kind'] == 'validation' and isinstance(obj.get('checks'), list):
             clean['checks'] = [c for c in (public_check(c) for c in obj['checks']) if c is not None]
         if obj['kind'] == 'stack' and isinstance(obj.get('runtime_flags'), dict):
-            runtime = public_runtime({'flags': obj['runtime_flags']})
+            flags = obj['runtime_flags']
+            # private stacks carry raw flags; already-public ones carry the filtered fields
+            runtime = public_runtime({'flags': flags, **{k: flags[k] for k in ('xla_options', 'platforms') if k in flags}})
             clean['runtime_flags'] = {k: runtime[k] for k in ('xla_options', 'platforms') if k in runtime}
         if 'packages' in clean:
             clean['packages'] = {k: v for k, v in clean['packages'].items() if k in PUBLIC_PACKAGES}

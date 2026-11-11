@@ -104,3 +104,19 @@ class JaxCpuPolicyPanel(unittest.TestCase):
         self.assertIn('jax-cpu-policy', page)
         state = json.loads((root / '_site/state.json').read_text())
         self.assertTrue(any(i['id'] == 'jax-cpu-local' for i in state['items']))
+
+
+class PublicReprojection(unittest.TestCase):
+    """Committed public data is filtered again on render; that second pass must keep what the first kept."""
+    def test_stack_flags_and_library_checks_survive(self):
+        stack = record('stack', name='jax-0.11.2-eigen-false', python='3.13.13', backend='cpu', packages={'jax': '0.11.2'},
+                       runtime_flags={'XLA_FLAGS': '--xla_cpu_multi_thread_eigen=false --xla_dump_to=/secret', 'JAX_PLATFORMS': 'cpu'})
+        check = {'case': 'library:group/delaunay', 'outcome': 'pass', 'calls_completed': 30}
+        val = record('validation', stack=stack['digest'], environment='local', authority='PyAutoDNA', result='pass',
+                     checks=[check], evidence='private', inventory='x' * 64)
+        once = public_records([stack, val])
+        twice = public_records(once)
+        self.assertEqual(twice, once)
+        self.assertEqual(twice[0]['runtime_flags']['xla_options'], ['--xla_cpu_multi_thread_eigen=false'])
+        self.assertEqual(twice[1]['checks'][0]['case'], 'library:group/delaunay')
+        self.assertNotIn('secret', json.dumps(twice))
