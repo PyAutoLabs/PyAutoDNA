@@ -11,9 +11,9 @@
       "declared_backend": "unknown",
       "status": "observed",
       "observed": {
-        "digest": "172b54a0722a46fa771017dd5f933146abbccf43545ef3ef43ce49ce60e1dfd2",
+        "digest": "7ed3f48e5f0b21d231abd786c6eb880ac4699dfdc62df5e06035dab9bb6c5cca",
         "environment": "local",
-        "created": "2026-11-10T18:27:57.049218Z",
+        "created": "2026-11-11T13:38:41.018251Z",
         "python": "3.13.13",
         "packages": {
           "anesthetic": {
@@ -98,7 +98,33 @@
             "version": "2.5.4"
           }
         },
-        "repositories": [],
+        "repositories": [
+          {
+            "name": "PyAutoNerves",
+            "sha": "e7ab84ca2e7a2fe11bd988979e7eae036a40e084",
+            "dirty": false
+          },
+          {
+            "name": "PyAutoFit",
+            "sha": "856fb87a970e93dc637f69485457e4349fcc78cf",
+            "dirty": false
+          },
+          {
+            "name": "PyAutoArray",
+            "sha": "2e494f9479356c9b43ad927abc6c881b15c6c71f",
+            "dirty": false
+          },
+          {
+            "name": "PyAutoGalaxy",
+            "sha": "6a5e022753eb739dc61a7fe1a33656729ce560d8",
+            "dirty": false
+          },
+          {
+            "name": "PyAutoLens",
+            "sha": "59b70271d338089a77cad458be496a953805d316",
+            "dirty": false
+          }
+        ],
         "runtime": {
           "backend": "cpu",
           "x64": true,
@@ -9084,6 +9110,247 @@
         "xla_options": [],
         "platforms": "cpu"
       }
+    },
+    {
+      "digest": "a4d378ef3e9835e5b28c89c06406a1bd95d90c4cc82dbea07f8dfafd0082adc6",
+      "kind": "audit",
+      "created": "2026-11-11T13:38:41.847770Z",
+      "inventory": "7ed3f48e5f0b21d231abd786c6eb880ac4699dfdc62df5e06035dab9bb6c5cca",
+      "rows": [
+        {
+          "repository": "PyAutoNerves",
+          "package": "python",
+          "observed": "3.13.13",
+          "status": "compatible",
+          "declared": ">=3.12"
+        },
+        {
+          "repository": "PyAutoNerves",
+          "package": "numpy",
+          "observed": "2.5.4",
+          "status": "compatible",
+          "declared": "numpy<3.0.0,>=1.24.0"
+        },
+        {
+          "repository": "PyAutoNerves",
+          "package": "jax",
+          "observed": "0.11.2",
+          "status": "compatible",
+          "declared": "jax!=0.10.*,!=0.11.0,<0.12.0,>=0.7.0"
+        },
+        {
+          "repository": "PyAutoNerves",
+          "package": "jaxlib",
+          "observed": "0.11.2",
+          "status": "compatible",
+          "declared": "jaxlib!=0.10.*,!=0.11.0,<0.12.0,>=0.7.0"
+        },
+        {
+          "repository": "PyAutoNerves",
+          "status": "ci_override_review",
+          "source": "colab-gate.yml",
+          "line": 50
+        },
+        {
+          "repository": "PyAutoNerves",
+          "status": "ci_override_review",
+          "source": "nerves_board.yml",
+          "line": 58
+        },
+        {
+          "repository": "PyAutoNerves",
+          "status": "ci_override_review",
+          "source": "nerves_board.yml",
+          "line": 61
+        },
+        {
+          "repository": "PyAutoFit",
+          "package": "python",
+          "observed": "3.13.13",
+          "status": "compatible",
+          "declared": ">=3.12"
+        },
+        {
+          "repository": "PyAutoFit",
+          "package": "autonerves",
+          "observed": "9999.0.0.dev0",
+          "status": "compatible",
+          "declared": "autonerves>2026.10.4.1"
+        },
+        {
+          "repository": "PyAutoFit",
+          "package": "optax",
+          "observed": "0.2.8",
+          "status": "compatible",
+          "declared": "optax>=0.2.5"
+        },
+        {
+          "repository": "PyAutoFit",
+          "package": "anesthetic",
+          "observed": "2.16.0",
+          "status": "compatible",
+          "declared": "anesthetic>=2.9.0"
+        },
+        {
+          "repository": "PyAutoFit",
+          "package": "corner",
+          "observed": "2.2.2",
+          "status": "compatible",
+          "declared": "corner==2.2.2"
+        },
+        {
+          "repository": "PyAutoFit",
+          "package": "dynesty",
+          "observed": "2.1.5",
+          "status": "compatible",
+          "declared": "dynesty==2.1.5"
+        },
+        {
+          "repository": "PyAutoFit",
+          "package": "emcee",
+          "observed": "3.1.6",
+          "status": "compatible",
+          "declared": "emcee>=3.1.6"
+        },
+        {
+          "repository": "PyAutoFit",
+          "package": "matplotlib",
+          "observed": "3.11.2",
+          "status": "compatible",
+          "declared": "matplotlib"
+        },
+        {
+          "repository": "PyAutoFit",
+          "package": "scipy",
+          "observed": "1.17.1",
+          "status": "compatible",
+          "declared": "scipy<=1.17.1"
+        },
+        {
+          "repository": "PyAutoFit",
+          "status": "ci_override_review",
+          "source": "docs.yml",
+          "line": 43
+        },
+        {
+          "repository": "PyAutoFit",
+          "status": "ci_override_review",
+          "source": "docs.yml",
+          "line": 45
+        },
+        {
+          "repository": "PyAutoArray",
+          "package": "python",
+          "observed": "3.13.13",
+          "status": "compatible",
+          "declared": ">=3.12"
+        },
+        {
+          "repository": "PyAutoArray",
+          "package": "autonerves",
+          "observed": "9999.0.0.dev0",
+          "status": "compatible",
+          "declared": "autonerves>2026.10.4.1"
+        },
+        {
+          "repository": "PyAutoArray",
+          "package": "astropy",
+          "observed": "8.0.2",
+          "status": "compatible",
+          "declared": "astropy>=5.0"
+        },
+        {
+          "repository": "PyAutoArray",
+          "package": "matplotlib",
+          "observed": "3.11.2",
+          "status": "compatible",
+          "declared": "matplotlib>=3.7.0"
+        },
+        {
+          "repository": "PyAutoArray",
+          "package": "scipy",
+          "observed": "1.17.1",
+          "status": "compatible",
+          "declared": "scipy<=1.17.1"
+        },
+        {
+          "repository": "PyAutoArray",
+          "package": "scikit-learn",
+          "observed": "1.8.0",
+          "status": "compatible",
+          "declared": "scikit-learn<=1.8.0"
+        },
+        {
+          "repository": "PyAutoGalaxy",
+          "package": "python",
+          "observed": "3.13.13",
+          "status": "compatible",
+          "declared": ">=3.12"
+        },
+        {
+          "repository": "PyAutoGalaxy",
+          "package": "autonerves",
+          "observed": "9999.0.0.dev0",
+          "status": "compatible",
+          "declared": "autonerves>2026.10.4.1"
+        },
+        {
+          "repository": "PyAutoGalaxy",
+          "package": "autofit",
+          "observed": "9999.0.0.dev0",
+          "status": "compatible",
+          "declared": "autofit>=2026.10.23.1"
+        },
+        {
+          "repository": "PyAutoGalaxy",
+          "package": "autoarray",
+          "observed": "9999.0.0.dev0",
+          "status": "compatible",
+          "declared": "autoarray>=2026.8.22.1"
+        },
+        {
+          "repository": "PyAutoGalaxy",
+          "package": "astropy",
+          "observed": "8.0.2",
+          "status": "compatible",
+          "declared": "astropy>=5.0"
+        },
+        {
+          "repository": "PyAutoGalaxy",
+          "package": "nautilus-sampler",
+          "observed": "1.0.5",
+          "status": "compatible",
+          "declared": "nautilus-sampler==1.0.5"
+        },
+        {
+          "repository": "PyAutoLens",
+          "package": "python",
+          "observed": "3.13.13",
+          "status": "compatible",
+          "declared": ">=3.12"
+        },
+        {
+          "repository": "PyAutoLens",
+          "package": "autonerves",
+          "observed": "9999.0.0.dev0",
+          "status": "compatible",
+          "declared": "autonerves>2026.10.4.1"
+        },
+        {
+          "repository": "PyAutoLens",
+          "package": "autogalaxy",
+          "observed": "9999.0.0.dev0",
+          "status": "compatible",
+          "declared": "autogalaxy>=2026.8.22.1"
+        },
+        {
+          "repository": "PyAutoLens",
+          "package": "nautilus-sampler",
+          "observed": "1.0.5",
+          "status": "compatible",
+          "declared": "nautilus-sampler==1.0.5"
+        }
+      ]
     }
   ]
 }
