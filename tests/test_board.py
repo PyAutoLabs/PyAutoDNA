@@ -62,7 +62,7 @@ class Board(unittest.TestCase):
         page = (self.root/'site/index.html').read_text()
         self.assertIn('0.11.2', page)
         self.assertIn('Last updated unavailable', page)
-        self.assertEqual(page.count('class="board-section"'), 4)
+        self.assertEqual(page.count('class="board-section"'), 5)  # policies, environments, compatibility, decisions, campaigns
         self.assertNotIn('<details class="board-section" open', page)
         self.assertIn('data-organ="brain"', page)
         self.assertNotIn(str(self.root), page)

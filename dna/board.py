@@ -10,6 +10,7 @@ from .campaigns import Store
 from .inventory import public_inventory, public_runtime, PUBLIC_PACKAGES, PUBLIC_REPOSITORIES
 from .matrix import CHECK_FIELDS, MATRIX_SOURCE
 from .schema import identifier, now, read, timestamp
+from .policy_docs import inline, load_decisions, render_markdown, safe_url
 
 URL = 'https://pyautolabs.github.io/PyAutoDNA/'
 REPO = 'https://github.com/PyAutoLabs/PyAutoDNA'
@@ -86,6 +87,118 @@ def jax_cpu_policy(records):
                      'hung_cases': sorted({c['case'] for c in hangs}),
                      'first_hang': min((c['hung_at_call'] for c in hangs if c.get('hung_at_call') is not None), default=None)})
     return sorted(rows, key=lambda x: (x['jax'], x['environment'], ' '.join(x['xla_options'])))
+
+
+FLAG_LABELS = {'xla_cpu_multi_thread_eigen': 'eigen off', 'xla_cpu_enable_concurrency_optimized_scheduler': 'scheduler off'}
+
+
+def flag_label(xla_options):
+    """The hang-relevant part of a stack's XLA options, as a short column label."""
+    names = sorted(FLAG_LABELS[o.lstrip('-').split('=')[0]] for o in (xla_options or [])
+                   if o.lstrip('-').split('=')[0] in FLAG_LABELS)
+    return ' + '.join(names) if names else 'no flag'
+
+
+def _version_key(text):
+    from packaging.version import InvalidVersion, Version
+    try:
+        return (0, Version(text))
+    except InvalidVersion:
+        return (1, text)
+
+
+def research_checks(records):
+    """Every check of the latest DNA research verdict per (stack, environment), flattened with
+    its environment, jax version and flag label."""
+    stacks = {r['digest']: r for r in records if r['kind'] == 'stack'}
+    research = latest([r for r in records if r['kind'] == 'validation' and r.get('authority') == 'PyAutoDNA'],
+                      'validation', lambda r: (r['stack'], r['environment']))
+    out = []
+    for r in research.values():
+        stack = stacks.get(r['stack'], {})
+        jax = stack.get('packages', {}).get('jax')
+        if not jax:
+            continue
+        label = flag_label(stack.get('runtime_flags', {}).get('xla_options'))
+        for c in r.get('checks', []):
+            if isinstance(c, dict):
+                out.append(dict(c, environment=r['environment'], jax=jax, flag=label))
+    return out
+
+
+def matrix_grid(checks):
+    """``{environment: {'columns': [(flag, cores)], 'rows': {jax: {(flag, cores): (passed, hung, total)}}}}``.
+    ``cores`` is the pinned core count, or 'all' when the run was not pinned."""
+    grid = {}
+    for c in checks:
+        cores = c.get('cpus_pinned') or 'all'
+        env = grid.setdefault(c['environment'], {'columns': set(), 'rows': {}})
+        col = (c['flag'], cores)
+        env['columns'].add(col)
+        cell = env['rows'].setdefault(c['jax'], {}).setdefault(col, [0, 0, 0])
+        cell[0] += c.get('outcome') == 'pass'
+        cell[1] += c.get('outcome') == 'hang'
+        cell[2] += 1
+    order = {'no flag': 0, 'eigen off': 1, 'scheduler off': 2}
+    for env in grid.values():
+        env['columns'] = sorted(env['columns'], key=lambda fc: (order.get(fc[0], 9), fc[0], str(fc[1]).zfill(4)))
+    return grid
+
+
+def flag_cost(checks, environment, jax):
+    """Median steady per-call seconds of passing checks: ``(columns, {case: {(flag, cores): s}})``."""
+    import statistics
+    cells = {}
+    for c in checks:
+        if c['environment'] != environment or c['jax'] != jax or c.get('outcome') != 'pass':
+            continue
+        value = c.get('steady_median_call_s') or c.get('median_call_s')
+        if isinstance(value, (int, float)):
+            cells.setdefault(c['case'], {}).setdefault((c['flag'], c.get('cpus_pinned') or 'all'), []).append(value)
+    columns = sorted({col for row in cells.values() for col in row}, key=lambda fc: (fc[0] != 'no flag', fc[0], str(fc[1]).zfill(4)))
+    return columns, {case: {col: statistics.median(v) for col, v in row.items()} for case, row in sorted(cells.items())}
+
+
+def policy_cards(records, docs, checks=None):
+    """One card per decision with policy fields: declared (latest audit) vs recommended, derived
+    status, and the matrix versions the declared range allows that hang with no flag."""
+    from packaging.requirements import Requirement
+    from packaging.specifiers import SpecifierSet
+    checks = research_checks(records) if checks is None else checks
+    hanging = sorted({c['jax'] for c in checks if c['flag'] == 'no flag' and c.get('outcome') == 'hang'}, key=_version_key)
+    audits = sorted((r for r in records if r['kind'] == 'audit'), key=lambda r: timestamp(r['created']))
+    cards = []
+    for doc in docs:
+        pol = doc.get('policy')
+        if not pol:
+            continue
+        declared, audited_at = {}, None
+        for audit in audits:  # newest audit wins, package by package
+            for row in audit.get('rows', []):
+                if row.get('repository') == pol['declared_in'] and row.get('package') in pol['packages'] and row.get('declared'):
+                    declared[row['package']] = str(Requirement(row['declared']).specifier)
+                    audited_at = audit['created']
+        rows, same = [], bool(declared)
+        for package in pol['packages']:
+            rec = SpecifierSet(str(pol['recommended'][package]))
+            dec = declared.get(package)
+            if dec is None or SpecifierSet(dec) != rec:
+                same = False
+            rows.append({'package': package, 'declared': dec, 'recommended': str(rec)})
+        derived = 'not audited' if not declared else 'adopted' if same else 'recommended, not yet declared'
+        allowed_hanging, recommended_hanging = [], []
+        mp = pol.get('matrix_package')
+        for version in hanging:
+            if mp in declared and SpecifierSet(declared[mp]).contains(version, prereleases=True):
+                allowed_hanging.append(version)
+            if SpecifierSet(str(pol['recommended'][mp])).contains(version, prereleases=True):
+                recommended_hanging.append(version)
+        cards.append({'policy': pol['policy'], 'title': pol['title'], 'status': pol['status'], 'derived': derived,
+                      'declared_in': pol['declared_in'], 'audited_at': audited_at, 'rows': rows,
+                      'findings': pol.get('findings', []), 'links': pol.get('links', []),
+                      'review_date': pol['review_date'], 'decision': doc['name'],
+                      'allowed_hanging': allowed_hanging, 'recommended_hanging': recommended_hanging})
+    return cards
 
 
 def public_records(records):
@@ -205,6 +318,67 @@ def evidence_age(obj, max_age_days):
     return 'Stale' if age > max_age_days * 86400 else 'Current receipt'
 
 
+def render_policies(cards):
+    """The Policies section: one card per decision that sets a policy."""
+    body = '<section><h2 id="policies">Policies</h2><p>What each repository declares, what DNA recommends, and the evidence behind it.</p>'
+    if not cards:
+        return body + '<p>No decision sets a policy yet.</p></section>'
+    for c in cards:
+        body += '<div class="dna-card"><h3>' + esc(c['title']) + '</h3>'
+        body += '<p><span class="dna-badge">' + esc(c['derived']) + '</span>' + esc(c['status']) + '</p>'
+        body += table(['Package', 'Declared in ' + c['declared_in'], 'Recommended'], [
+            [r['package'], r['declared'] or 'Not audited', r['recommended']] for r in c['rows']], c['title'] + ' ranges')
+        when = ('declared range from the dependency audit of ' + c['audited_at'][:10]) if c['audited_at'] else 'no dependency audit recorded yet'
+        body += '<p class="muted">' + esc(when) + '. Review by ' + esc(c['review_date']) + '.</p>'
+        if c['allowed_hanging']:
+            body += ('<p class="dna-warn">The declared range still allows jax ' + esc(', '.join(c['allowed_hanging']))
+                     + ', which hangs in the hang matrix without a flag. The recommended range excludes it.</p>')
+        elif c['rows'] and c['derived'] != 'not audited':
+            body += '<p>No version the declared range allows hangs in the hang matrix.</p>'
+        if c['recommended_hanging']:
+            body += '<p class="dna-warn">The recommended range allows jax ' + esc(', '.join(c['recommended_hanging'])) + ', which hangs in the hang matrix.</p>'
+        if c['findings']:
+            body += '<h4>Findings</h4><ul>' + ''.join('<li>' + inline(str(f)) + '</li>' for f in c['findings']) + '</ul>'
+        links = [l for l in c['links'] if safe_url(l['url'])]
+        body += ('<p>' + ' · '.join('<a href="' + esc(l['url']) + '">' + esc(l['label']) + '</a>' for l in links)
+                 + (' · ' if links else '') + '<a href="#decision-' + esc(c['decision']) + '">Full decision</a></p>')
+        body += '</div>'
+    return body + '</section>'
+
+
+def render_matrix(checks):
+    """Pass/hang counts per jax version x XLA flag x cores, and per-call cost on the newest version."""
+    if not checks:
+        return '<p>No hang-matrix checks recorded.</p>'
+    body = ''
+    for env, grid in sorted(matrix_grid(checks).items()):
+        cols = grid['columns']
+        head = ['jax'] + [f"{flag}, {cores} cores" if cores != 'all' else f"{flag}, all cores" for flag, cores in cols]
+        rows = []
+        for jax in sorted(grid['rows'], key=_version_key):
+            row = [jax]
+            for col in cols:
+                cell = grid['rows'][jax].get(col)
+                if not cell:
+                    row.append('—')
+                else:
+                    passed, hung, total = cell
+                    other = total - passed - hung
+                    text = f"{passed}/{total} pass" if not hung else f"{hung}/{total} hang" + (f" · {passed} pass" if passed else '')
+                    row.append(text + (f" ({other} not run)" if other else ''))
+            rows.append(row)
+        body += '<h4>' + esc(env) + ': cells passed or hung</h4>' + table(head, rows, env + ' hang matrix by version, flag and cores')
+        newest = max(grid['rows'], key=_version_key)
+        cost_cols, cost = flag_cost(checks, env, newest)
+        if cost:
+            body += '<h4>' + esc(env) + ': per-call time on jax ' + esc(newest) + ' (median, seconds)</h4>'
+            body += table(['Reproducer'] + [f"{flag}, {cores} cores" if cores != 'all' else f"{flag}, all cores" for flag, cores in cost_cols],
+                          [[case] + [f"{cost[case][col]:.3f}" if col in cost[case] else '—' for col in cost_cols] for case in cost],
+                          env + ' per-call time by flag')
+    body += '<p class="muted">A cell counts repeated runs of every reproducer; "not run" covers a module that version cannot load. Per-call time is the steady median of passing runs.</p>'
+    return body
+
+
 def render(root, brain, output, max_age_days=7):
     theme = module(brain / 'board/_theme.py', 'dna_theme')
     state_contract = module(brain / 'board/_state.py', 'dna_state')
@@ -238,19 +412,29 @@ def render(root, brain, output, max_age_days=7):
                               'text': f"{e['label']}: jax {key[0]} with {', '.join(key[1]) or 'no XLA:CPU hang flag'} hangs in the DNA hang matrix",
                               'url': URL + '#jax-cpu-policy'})
     mismatches = mismatches + [(e, None) for e in exposed]
-    status = 'yellow' if mismatches else 'stale' if any(e['status'] == 'stale' for e in envs) else 'grey'
+    docs = load_decisions(root / 'decisions') if (root / 'decisions').is_dir() else []
+    checks = research_checks(records)
+    cards = policy_cards(records, docs, checks)
+    open_policies = [c for c in cards if c['allowed_hanging']]
+    for card in open_policies:
+        items.append({'id': 'policy-' + card['policy'], 'severity': 'yellow', 'state': 'action_required',
+                      'text': f"{card['title']}: {card['declared_in']} still allows jax {', '.join(card['allowed_hanging'])}, which hangs in the DNA hang matrix",
+                      'url': URL + '#policies'})
+    status = 'yellow' if mismatches or open_policies else 'stale' if any(e['status'] == 'stale' for e in envs) else 'grey'
     count = sum(e['status'] == 'observed' for e in envs)
     headline = f'{count} / {len(envs)} environments observed'
     if len(mismatches) > len(exposed):
         headline += f'; {len(mismatches) - len(exposed)} declaration mismatches'
     if exposed:
         headline += f'; {len(exposed)} on a hanging JAX CPU setup'
+    if open_policies:
+        headline += f"; {len(open_policies)} {'policy' if len(open_policies) == 1 else 'policies'} not yet declared"
     state = dict(schema_version=1, organ='dna', repo='PyAutoLabs/PyAutoDNA', status=status,
                  headline=headline, updated=board['updated'], pages_url=URL, items=items)
     errors = state_contract.validate_state(state)
     if errors:
         raise ValueError('; '.join(errors))
-    sections = ['environments', 'compatibility', 'decisions', 'campaigns']
+    sections = ['policies', 'environments', 'compatibility', 'decisions', 'campaigns']
     body = theme.hero('dna', 'Dashboard', navigation=[{'href': '#' + s, 'label': s.title()} for s in sections])
     body += theme.orchestration_panel('dna', 'DNA', '',
         'Review PyAutoDNA software stacks and compatibility. Read AGENTS.md and inspect current inventories, '
@@ -259,6 +443,7 @@ def render(root, brain, output, max_age_days=7):
         'running science environments. Collection or refresh never installs packages or submits compute.',
         organ='dna', refreshed_at=board['refreshed_at'], refresh_url=REPO + '/actions/workflows/pages.yml',
         work_links=[{'label': 'DNA', 'href': REPO}, {'label': 'Brain', 'href': 'https://github.com/PyAutoLabs/PyAutoBrain'}])
+    body += render_policies(cards)
     body += '<section><h2 id="environments">Environments</h2>'
     body += table(['Environment', 'Profile', 'Observed Python / backend', 'XLA options', 'Last observation'], [
         [e['label'], e['declared_python'] + ' / ' + e['declared_backend'],
@@ -311,11 +496,14 @@ def render(root, brain, output, max_age_days=7):
         body += '<p>No dependency audit recorded. Package requirements remain authoritative in each repository.</p>'
     body += '<h3 id="jax-cpu-policy">JAX CPU policy: hang matrix</h3>'
     if policy:
+        body += render_matrix(checks)
+        body += '<details><summary>Every recorded verdict</summary>'
         body += table(['jax', 'XLA options', 'Environment', 'Result', 'Reproducers passed', 'Hung (first call)', 'Recorded'], [
             [r['jax'], ', '.join(r['xla_options']) or 'Default', r['environment'], r['result'],
              f"{r['passed']} / {r['cells']}",
              (', '.join(r['hung_cases']) + (f" (call {r['first_hang']})" if r['first_hang'] is not None else '')) if r['hung'] else 'None',
              r['created']] for r in policy], 'JAX version and XLA flag hang matrix')
+        body += '</details>'
         body += '<p class="muted">DNA research evidence: each reproducer runs many times in a process that imports only jax. A pass is not a Heart validation and never promotes a stack; a hang blocks one.</p>'
     else:
         body += '<p>No hang-matrix evidence recorded.</p>'
@@ -334,8 +522,10 @@ def render(root, brain, output, max_age_days=7):
     else:
         body += '<p>No recommended stack has been promoted.</p>'
     body += '</section><section><h2 id="decisions">Decisions</h2><p>Reasons for version restrictions and when to review them.</p>'
-    for path in sorted((root / 'decisions').glob('*.md')):
-        body += '<details><summary>' + esc(path.stem.replace('-', ' ')) + '</summary><pre class="dna-prose">' + esc(path.read_text()) + '</pre></details>'
+    for doc in docs:
+        title = doc['policy']['title'] if doc['policy'] else doc['name'].replace('-', ' ')
+        body += ('<details id="decision-' + esc(doc['name']) + '"><summary>' + esc(title) + '</summary><div class="dna-prose">'
+                 + render_markdown(doc['body']) + '</div></details>')
     body += '</section><section><h2 id="campaigns">Campaigns</h2>'
     campaigns = [r for r in records if r['kind'] == 'campaign']
     if not campaigns:
@@ -347,7 +537,7 @@ def render(root, brain, output, max_age_days=7):
         body += table(['Action', 'Environment', 'Recorded'], [[r['kind'], r.get('environment', 'Campaign'), r['created']] for r in sorted(events, key=lambda r: timestamp(r['created']))], 'Campaign history') if events else '<p>Candidate awaiting validation.</p>'
         body += '</details>'
     body += '</section>' + theme.boards_footer(theme.board_links('https://pyautolabs.github.io', 'dna'), 'dna')
-    css = '.dna-table{overflow-x:auto;margin:1rem 0}.dna-table table{width:100%;border-collapse:collapse}.dna-table th,.dna-table td{padding:.65rem .8rem;text-align:left;vertical-align:top;border-bottom:1px solid var(--border,#d0d7de)}.dna-table th{white-space:nowrap}.dna-table td{min-width:7rem}.dna-prose{white-space:pre-wrap;font:inherit;line-height:1.6}code{overflow-wrap:anywhere}'
+    css = '.dna-table{overflow-x:auto;margin:1rem 0}.dna-table table{width:100%;border-collapse:collapse}.dna-table th,.dna-table td{padding:.65rem .8rem;text-align:left;vertical-align:top;border-bottom:1px solid var(--border,#d0d7de)}.dna-table th{white-space:nowrap}.dna-table td{min-width:7rem}.dna-prose{line-height:1.6;max-width:72ch}.dna-prose blockquote{margin:1rem 0;padding:.25rem 1rem;border-left:3px solid var(--border,#d0d7de)}.dna-prose pre{overflow-x:auto}.dna-card{border:1px solid var(--border,#d0d7de);border-radius:10px;padding:1rem 1.1rem;margin:1rem 0}.dna-card h3{margin-top:0}.dna-badge{display:inline-block;padding:.1rem .55rem;border-radius:999px;border:1px solid var(--border,#d0d7de);font-size:.85em;margin-right:.4rem}.dna-warn{border-left:4px solid #bf8700;padding:.4rem .8rem;margin:.6rem 0}code{overflow-wrap:anywhere}'
     page = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PyAutoDNA — Software stacks and compatibility</title><style>' + theme.css('dna') + css + '</style></head><body><main>' + body + '</main><script>' + theme.JS + '</script></body></html>'
     page = theme.section_layout(page)
     output.mkdir(parents=True, exist_ok=True)
