@@ -33,3 +33,5 @@ reviewed observations of local development and the RAL shared environment; CPU,
 GPU, CI and release validation remain unknown until their own receipts arrive.
 `support.yaml` records upstream Python/JAX support horizons with source links and
 a policy review date. These dates do not certify PyAuto compatibility.
+
+<sub><i><a href="https://music.apple.com/us/song/1700707219">i came first, but you’re ahead</a></i></sub>
